@@ -1,10 +1,6 @@
 # MCP Continue - AI对话持续工具
 
 <p align="center">
-  <img src="assets/icon.svg" width="80" height="80" alt="MCP Continue Logo">
-</p>
-
-<p align="center">
   <strong>Professional MCP Continue tool with interactive dialog, call statistics, and modern UI</strong>
 </p>
 
