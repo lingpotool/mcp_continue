@@ -1,0 +1,136 @@
+{
+  "name": "mcp-continue",
+  "displayName": "MCP Continue - AI对话持续工具",
+  "description": "Professional MCP Continue tool with interactive dialog, call statistics, and modern UI. HTTP mode only.",
+  "version": "1.0.0",
+  "publisher": "mcp-continue",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "chat",
+    "continue",
+    "mcp",
+    "windsurf",
+    "cursor",
+    "copilot",
+    "claude",
+    "dialog"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mcpContinue",
+          "title": "MCP Continue",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "mcpContinue": [
+        {
+          "type": "webview",
+          "id": "mcpContinue.sidebarView",
+          "name": "MCP Continue"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "mcpContinue.openDashboard",
+        "title": "MCP Continue: 打开控制面板"
+      },
+      {
+        "command": "mcpContinue.show",
+        "title": "MCP Continue: 显示对话框"
+      },
+      {
+        "command": "mcpContinue.startServer",
+        "title": "MCP Continue: 启动服务器"
+      },
+      {
+        "command": "mcpContinue.stopServer",
+        "title": "MCP Continue: 停止服务器"
+      },
+      {
+        "command": "mcpContinue.toggleServer",
+        "title": "MCP Continue: 切换服务器状态"
+      },
+      {
+        "command": "mcpContinue.installMCP",
+        "title": "MCP Continue: 配置 MCP 服务"
+      },
+      {
+        "command": "mcpContinue.resetStats",
+        "title": "MCP Continue: 重置统计"
+      }
+    ],
+    "configuration": {
+      "title": "MCP Continue",
+      "properties": {
+        "mcpContinue.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "启动 VSCode 时自动启动 MCP 服务器"
+        },
+        "mcpContinue.port": {
+          "type": "number",
+          "default": 34567,
+          "description": "MCP HTTP 服务器端口（建议使用不常用端口）",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "mcpContinue.theme": {
+          "type": "string",
+          "default": "dark",
+          "enum": ["dark", "light"],
+          "description": "UI 主题"
+        },
+        "mcpContinue.showStats": {
+          "type": "boolean",
+          "default": true,
+          "description": "在对话框中显示调用统计"
+        },
+        "mcpContinue.allowImageUpload": {
+          "type": "boolean",
+          "default": true,
+          "description": "允许图片上传"
+        },
+        "mcpContinue.allowFileReference": {
+          "type": "boolean",
+          "default": true,
+          "description": "允许文件引用（@ 符号）"
+        },
+        "mcpContinue.defaultReason": {
+          "type": "string",
+          "default": "Task completed",
+          "description": "默认结束原因"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.4.0"
+  }
+}

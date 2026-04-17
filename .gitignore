@@ -1,0 +1,8 @@
+node_modules/
+out/
+*.vsix
+*.js.map
+.vscode/
+.vscode-test/
+[Content_Types].xml
+extension.vsixmanifest
