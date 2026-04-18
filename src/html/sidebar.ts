@@ -14,6 +14,7 @@ export function getSidebarHtml(
   allowFileReference: boolean,
   isPrimary: boolean,
   primaryPort: number,
+  timeout: number,
 ): string {
   const cssVars = generateCSSVariables(theme);
   const sharedCSS = getSharedStyles();
@@ -26,6 +27,8 @@ export function getSidebarHtml(
   <style>
     ${sharedCSS}
     :root { ${cssVars} }
+
+    html { height: auto; overflow-y: auto; }
 
     body {
       padding: 12px;
@@ -389,6 +392,10 @@ export function getSidebarHtml(
       <input type="checkbox" id="allowFileReference" ${allowFileReference ? 'checked' : ''}>
       <label for="allowFileReference">文件引用 (@)</label>
     </div>
+    <div class="form-group" style="margin-top:8px">
+      <label>响应超时（秒，0=永不超时）</label>
+      <input type="number" class="emboss-input" id="timeout" value="${timeout}" min="0" max="3600" step="30" style="width:100%">
+    </div>
     <button class="emboss-btn emboss-btn-primary action-btn" onclick="saveSettings()" style="margin-top:8px">
       ${icon('check', 12)} 保存设置
     </button>
@@ -451,12 +458,14 @@ export function getSidebarHtml(
     }
 
     function saveSettings() {
+      const timeoutVal = parseInt(document.getElementById('timeout').value, 10);
       vscode.postMessage({
         type: 'saveSettings',
         autoStart: document.getElementById('autoStart').checked,
         showStats: document.getElementById('showStats').checked,
         allowImageUpload: document.getElementById('allowImageUpload').checked,
         allowFileReference: document.getElementById('allowFileReference').checked,
+        timeout: isNaN(timeoutVal) ? 600 : Math.max(0, Math.min(3600, timeoutVal)),
       });
     }
 

@@ -11,213 +11,235 @@ interface PendingRequest {
   resolve: (result: any) => void;
   panel: vscode.WebviewPanel;
   reason: string;
-}
-
-interface QueuedRequest {
   requestId: string;
-  reason: string;
-  resolve: (result: any) => void;
 }
 
-let pendingRequests = new Map<string, PendingRequest>();
-let requestQueue: QueuedRequest[] = [];
-let isProcessingRequest = false;
-let requestCounter = 0;
-let currentContext: vscode.ExtensionContext | null = null;
-let currentConfigService: ConfigService | null = null;
-let currentStatsService: StatsService | null = null;
-let currentPortService: PortService | null = null;
+export class DialogManager {
+  private pendingRequest: PendingRequest | null = null;
+  private manualPanel: vscode.WebviewPanel | null = null;
+  private requestCounter = 0;
+  private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
-export function showAskContinueAndWait(
-  context: vscode.ExtensionContext,
-  reason: string,
-  configService: ConfigService,
-  statsService: StatsService,
-  portService: PortService,
-): Promise<any> {
-  return new Promise((resolve) => {
-    const requestId = `req_${Date.now()}_${++requestCounter}`;
+  constructor(
+    private port: number,
+    private context: vscode.ExtensionContext,
+    private configService: ConfigService,
+    private statsService: StatsService,
+    private portService: PortService,
+  ) {}
 
-    currentContext = context;
-    currentConfigService = configService;
-    currentStatsService = statsService;
-    currentPortService = portService;
+  getPort(): number { return this.port; }
 
-    requestQueue.push({ requestId, reason: reason || 'Task completed', resolve });
+  showAskContinueAndWait(reason: string): Promise<any> {
+    return new Promise((resolve) => {
+      this.clearTimeout();
+      this.resolvePending({ shouldContinue: false });
 
-    if (!isProcessingRequest) {
-      processNextRequest();
-    }
-  });
-}
+      const requestId = `req_${this.port}_${Date.now()}_${++this.requestCounter}`;
+      this.createDialogWebview(requestId, reason || 'Task completed', resolve);
 
-export function showManualDialog(
-  context: vscode.ExtensionContext,
-  configService: ConfigService,
-  statsService: StatsService,
-  portService: PortService,
-): void {
-  const requestId = `manual_${Date.now()}_${++requestCounter}`;
-  createDialogWebview(
-    context, requestId,
-    configService.get('defaultReason'),
-    (result) => {
-      vscode.window.showInformationMessage(result.shouldContinue ? '继续执行' : '对话已结束');
-    },
-    configService, statsService, portService,
-  );
-}
-
-function processNextRequest(): void {
-  if (requestQueue.length === 0) {
-    isProcessingRequest = false;
-    return;
-  }
-
-  isProcessingRequest = true;
-  const { requestId, reason, resolve } = requestQueue.shift()!;
-
-  if (!currentContext || !currentConfigService || !currentStatsService || !currentPortService) {
-    resolve({ shouldContinue: false });
-    isProcessingRequest = false;
-    return;
-  }
-
-  createDialogWebview(
-    currentContext,
-    requestId,
-    reason,
-    (result) => {
-      resolve(result);
-      processNextRequest();
-    },
-    currentConfigService,
-    currentStatsService,
-    currentPortService,
-  );
-}
-
-function createDialogWebview(
-  context: vscode.ExtensionContext,
-  requestId: string,
-  reason: string,
-  resolve: (result: any) => void,
-  configService: ConfigService,
-  statsService: StatsService,
-  portService: PortService,
-): void {
-  const theme = getTheme(configService.get('theme'));
-  const stats = statsService.getSnapshot();
-  const myPort = portService.getCurrentPort();
-
-  const panel = vscode.window.createWebviewPanel(
-    `mcpContinue_${requestId}`,
-    `MCP Continue :${myPort}`,
-    vscode.ViewColumn.Two,
-    { enableScripts: true, retainContextWhenHidden: true },
-  );
-
-  pendingRequests.set(requestId, { resolve, panel, reason });
-
-  panel.webview.html = getDialogHtml(
-    reason,
-    stats,
-    theme,
-    configService.get('showStats'),
-    configService.get('allowImageUpload'),
-    configService.get('allowFileReference'),
-  );
-
-  panel.webview.onDidReceiveMessage((message) => {
-    switch (message.type) {
-      case 'continue': {
-        const instruction = message.instruction || '';
-        handleResult(requestId, {
-          shouldContinue: true,
-          userInstruction: instruction,
-          imageContents: message.imageContents,
-        }, statsService, portService);
-        break;
+      const timeoutSeconds = this.configService.get('timeout');
+      if (timeoutSeconds > 0) {
+        this.timeoutHandle = setTimeout(() => {
+          this.timeoutHandle = null;
+          this.resolvePending({ isTimeout: true });
+        }, timeoutSeconds * 1000);
       }
-      case 'end':
-        handleResult(requestId, { shouldContinue: false }, statsService, portService);
-        break;
-      case 'selectImages':
-        selectImagesForRequest(requestId);
-        break;
-      case 'toggleTheme':
-        configService.update('theme', message.theme === 'dark' ? 'dark' : 'light');
-        break;
-    }
-  }, undefined, context.subscriptions);
-
-  panel.onDidDispose(() => {
-    const request = pendingRequests.get(requestId);
-    if (request) {
-      request.resolve({ shouldContinue: false });
-      pendingRequests.delete(requestId);
-    }
-  });
-}
-
-function handleResult(
-  requestId: string,
-  result: any,
-  statsService: StatsService,
-  portService: PortService,
-): void {
-  const request = pendingRequests.get(requestId);
-  if (!request) return;
-
-  pendingRequests.delete(requestId);
-  statsService.record(
-    result.shouldContinue ? 'continue' : 'end',
-    request.reason,
-    result.userInstruction || '',
-    portService.getWorkspaceId(),
-  );
-
-  if (request.panel) {
-    request.panel.dispose();
+    });
   }
 
-  request.resolve(result);
-
-  vscode.window.showInformationMessage(
-    result.shouldContinue
-      ? `继续执行${result.userInstruction ? '，指令: ' + result.userInstruction : ''}`
-      : '对话已结束',
-  );
-}
-
-async function selectImagesForRequest(requestId: string): Promise<void> {
-  const request = pendingRequests.get(requestId);
-  if (!request) return;
-
-  const uris = await vscode.window.showOpenDialog({
-    canSelectMany: true,
-    filters: { 'Images': ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] },
-  });
-
-  if (uris && request.panel) {
-    const contents: Array<{ name: string; data: string; mimeType: string }> = [];
-    const mimeTypes: Record<string, string> = {
-      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif', '.bmp': 'image/bmp', '.webp': 'image/webp',
-    };
-
-    for (const uri of uris) {
-      try {
-        const data = fs.readFileSync(uri.fsPath);
-        const ext = path.extname(uri.fsPath).toLowerCase();
-        contents.push({
-          name: path.basename(uri.fsPath),
-          data: data.toString('base64'),
-          mimeType: mimeTypes[ext] || 'image/png',
-        });
-      } catch {}
+  showManualDialog(): void {
+    if (this.manualPanel) {
+      this.manualPanel.dispose();
+      this.manualPanel = null;
     }
 
-    request.panel.webview.postMessage({ type: 'imagesSelected', contents });
+    const requestId = `manual_${this.port}_${Date.now()}_${++this.requestCounter}`;
+    const theme = getTheme(this.configService.get('theme'));
+    const stats = this.statsService.getSnapshot();
+    const myPort = this.portService.getCurrentPort();
+    const reason = this.configService.get('defaultReason');
+
+    const panel = vscode.window.createWebviewPanel(
+      `mcpContinue_manual_${this.port}_${requestId}`,
+      `MCP Continue :${myPort}`,
+      vscode.ViewColumn.Two,
+      { enableScripts: true, retainContextWhenHidden: true },
+    );
+
+    this.manualPanel = panel;
+
+    panel.webview.html = getDialogHtml(
+      reason, stats, theme,
+      this.configService.get('showStats'),
+      this.configService.get('allowImageUpload'),
+      this.configService.get('allowFileReference'),
+    );
+
+    panel.webview.onDidReceiveMessage(async (message) => {
+      switch (message.type) {
+        case 'continue': {
+          const instruction = message.instruction || '';
+          this.statsService.record(
+            'continue', reason, instruction, this.portService.getWorkspaceId(),
+          );
+          vscode.window.showInformationMessage(`继续执行${instruction ? '，指令: ' + instruction : ''}`);
+          this.manualPanel = null;
+          panel.dispose();
+          break;
+        }
+        case 'end':
+          this.statsService.record('end', reason, '', this.portService.getWorkspaceId());
+          vscode.window.showInformationMessage('对话已结束');
+          this.manualPanel = null;
+          panel.dispose();
+          break;
+        case 'selectImages':
+          this.selectImagesForPanel(panel);
+          break;
+        case 'toggleTheme':
+          this.configService.update('theme', message.theme === 'dark' ? 'dark' : 'light');
+          break;
+      }
+    }, undefined, this.context.subscriptions);
+
+    panel.onDidDispose(() => {
+      if (this.manualPanel === panel) {
+        this.manualPanel = null;
+      }
+    });
+  }
+
+  private createDialogWebview(
+    requestId: string,
+    reason: string,
+    resolve: (result: any) => void,
+  ): void {
+    const theme = getTheme(this.configService.get('theme'));
+    const stats = this.statsService.getSnapshot();
+    const myPort = this.portService.getCurrentPort();
+
+    const panel = vscode.window.createWebviewPanel(
+      `mcpContinue_${this.port}_${requestId}`,
+      `MCP Continue :${myPort}`,
+      vscode.ViewColumn.Two,
+      { enableScripts: true, retainContextWhenHidden: true },
+    );
+
+    this.pendingRequest = { resolve, panel, reason, requestId };
+
+    panel.webview.html = getDialogHtml(
+      reason, stats, theme,
+      this.configService.get('showStats'),
+      this.configService.get('allowImageUpload'),
+      this.configService.get('allowFileReference'),
+    );
+
+    panel.webview.onDidReceiveMessage((message) => {
+      switch (message.type) {
+        case 'continue': {
+          this.handleResult(requestId, {
+            shouldContinue: true,
+            userInstruction: message.instruction || '',
+            imageContents: message.imageContents,
+          });
+          break;
+        }
+        case 'end':
+          this.handleResult(requestId, { shouldContinue: false });
+          break;
+        case 'selectImages':
+          if (this.pendingRequest) {
+            this.selectImagesForPanel(this.pendingRequest.panel);
+          }
+          break;
+        case 'toggleTheme':
+          this.configService.update('theme', message.theme === 'dark' ? 'dark' : 'light');
+          break;
+      }
+    }, undefined, this.context.subscriptions);
+
+    panel.onDidDispose(() => {
+      this.resolvePending({ shouldContinue: false });
+    });
+  }
+
+  private handleResult(requestId: string, result: any): void {
+    if (!this.pendingRequest || this.pendingRequest.requestId !== requestId) return;
+
+    this.clearTimeout();
+
+    const { reason, resolve, panel } = this.pendingRequest;
+    this.pendingRequest = null;
+
+    this.statsService.record(
+      result.shouldContinue ? 'continue' : 'end',
+      reason,
+      result.userInstruction || '',
+      this.portService.getWorkspaceId(),
+    );
+
+    panel.dispose();
+    resolve(result);
+
+    vscode.window.showInformationMessage(
+      result.shouldContinue
+        ? `继续执行${result.userInstruction ? '，指令: ' + result.userInstruction : ''}`
+        : '对话已结束',
+    );
+  }
+
+  private resolvePending(result: any): void {
+    if (!this.pendingRequest) return;
+    this.clearTimeout();
+    const { resolve, panel } = this.pendingRequest;
+    this.pendingRequest = null;
+    panel.dispose();
+    resolve(result);
+  }
+
+  private clearTimeout(): void {
+    if (this.timeoutHandle) {
+      clearTimeout(this.timeoutHandle);
+      this.timeoutHandle = null;
+    }
+  }
+
+  private async selectImagesForPanel(panel: vscode.WebviewPanel): Promise<void> {
+    const uris = await vscode.window.showOpenDialog({
+      canSelectMany: true,
+      filters: { 'Images': ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] },
+    });
+
+    if (uris) {
+      const contents: Array<{ name: string; data: string; mimeType: string }> = [];
+      const mimeTypes: Record<string, string> = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.bmp': 'image/bmp', '.webp': 'image/webp',
+      };
+
+      for (const uri of uris) {
+        try {
+          const data = fs.readFileSync(uri.fsPath);
+          const ext = path.extname(uri.fsPath).toLowerCase();
+          contents.push({
+            name: path.basename(uri.fsPath),
+            data: data.toString('base64'),
+            mimeType: mimeTypes[ext] || 'image/png',
+          });
+        } catch {}
+      }
+
+      panel.webview.postMessage({ type: 'imagesSelected', contents });
+    }
+  }
+
+  dispose(): void {
+    this.clearTimeout();
+    this.resolvePending({ shouldContinue: false });
+    if (this.manualPanel) {
+      this.manualPanel.dispose();
+      this.manualPanel = null;
+    }
   }
 }

@@ -125,6 +125,13 @@
           "type": "string",
           "default": "Task completed",
           "description": "默认结束原因"
+        },
+        "mcpContinue.timeout": {
+          "type": "number",
+          "default": 600,
+          "description": "等待用户响应的超时时间（秒），超时后自动返回错误驱动 AI 重试，0 表示永不超时",
+          "minimum": 0,
+          "maximum": 3600
         }
       }
     }

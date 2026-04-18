@@ -149,6 +149,7 @@ function getConfigHtml(mcpUrl: string, port: number, theme: any): string {
   <style>
     ${getSharedStyles()}
     :root { ${cssVars} }
+    html { height: auto; overflow-y: auto; }
     body { padding: 30px; overflow-y: auto; height: auto; }
     .container { max-width: 700px; margin: 0 auto; }
     h1 { font-size: 20px; margin-bottom: 6px; }

@@ -8,6 +8,7 @@ export interface MCPConfig {
   allowImageUpload: boolean;
   allowFileReference: boolean;
   defaultReason: string;
+  timeout: number;
 }
 
 const DEFAULT_CONFIG: MCPConfig = {
@@ -18,6 +19,7 @@ const DEFAULT_CONFIG: MCPConfig = {
   allowImageUpload: true,
   allowFileReference: true,
   defaultReason: 'Task completed',
+  timeout: 600,
 };
 
 export class ConfigService {
@@ -38,6 +40,7 @@ export class ConfigService {
       allowImageUpload: vsConfig.get('allowImageUpload', DEFAULT_CONFIG.allowImageUpload),
       allowFileReference: vsConfig.get('allowFileReference', DEFAULT_CONFIG.allowFileReference),
       defaultReason: vsConfig.get('defaultReason', DEFAULT_CONFIG.defaultReason),
+      timeout: vsConfig.get('timeout', DEFAULT_CONFIG.timeout),
     };
   }
 

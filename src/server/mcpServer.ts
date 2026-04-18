@@ -152,6 +152,13 @@ export class MCPServer {
 
   private async handleMCPRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     let body = '';
+    let clientGone = false;
+
+    res.on('close', () => {
+      clientGone = true;
+      this.outputChannel.appendLine('[HTTP] 客户端已断开连接');
+    });
+
     req.on('data', (chunk: string) => body += chunk);
     req.on('end', async () => {
       try {
@@ -164,7 +171,7 @@ export class MCPServer {
           if (targetPort && targetPort !== this.myPort) {
             if (this.isPrimary && this.registeredPorts.has(targetPort)) {
               this.outputChannel.appendLine(`[路由] 转发请求到端口 ${targetPort}`);
-              const forwarded = await this.forwardToPort(targetPort, request, res);
+              const forwarded = await this.forwardToPort(targetPort, request, res, () => clientGone);
               if (forwarded) return;
               this.outputChannel.appendLine(`[路由] 转发失败，本地处理`);
             } else if (this.isPrimary) {
@@ -173,18 +180,12 @@ export class MCPServer {
           }
 
           if (!targetPort && this.isPrimary && this.registeredPorts.size > 0) {
-            const response = {
-              jsonrpc: '2.0',
-              id: request.id,
-              result: {
-                content: [{
-                  type: 'text',
-                  text: `⚠️ 检测到多个 VSCode 窗口运行中。调用 mcp_continue 时必须传递 "port" 参数。请从 VSCode 侧边栏复制提示词以获取正确的端口号。`,
-                }],
-              },
-            };
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(response));
+            this.sendJson(res, request.id, {
+              content: [{
+                type: 'text',
+                text: `⚠️ 检测到多个 VSCode 窗口运行中。调用 mcp_continue 时必须传递 "port" 参数。请从 VSCode 侧边栏复制提示词以获取正确的端口号。`,
+              }],
+            });
             return;
           }
         }
@@ -197,25 +198,34 @@ export class MCPServer {
           async (reason: string) => this.onRequest({ ...request, _reason: reason }),
         );
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(response));
+        this.sendJson(res, request.id, response.result || response);
       } catch (error) {
         this.outputChannel.appendLine(`请求处理错误: ${error}`);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          jsonrpc: '2.0',
-          id: null,
-          error: { code: -32603, message: String(error) },
-        }));
+        if (!res.writableEnded) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32603, message: String(error) },
+          }));
+        }
       }
     });
   }
 
-  private async forwardToPort(targetPort: number, request: any, res: http.ServerResponse): Promise<boolean> {
+  private sendJson(res: http.ServerResponse, id: any, result: any): void {
+    if (res.writableEnded) {
+      this.outputChannel.appendLine(`[HTTP] 跳过已关闭的响应 (id=${id})`);
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', id, result }));
+  }
+
+  private async forwardToPort(targetPort: number, request: any, res: http.ServerResponse, isClientGone: () => boolean): Promise<boolean> {
     try {
-      const response = await this.forwardHttpRequest(targetPort, request);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(response));
+      const response = await this.forwardHttpRequest(targetPort, request, isClientGone);
+      this.sendJson(res, request.id, response.result || response);
       return true;
     } catch (error) {
       this.outputChannel.appendLine(`[路由] 转发到端口 ${targetPort} 失败: ${error}`);
@@ -262,9 +272,16 @@ export class MCPServer {
     });
   }
 
-  private forwardHttpRequest(targetPort: number, request: any): Promise<any> {
+  private forwardHttpRequest(targetPort: number, request: any, isClientGone: () => boolean): Promise<any> {
     return new Promise((resolve, reject) => {
       const postData = JSON.stringify(request);
+      let settled = false;
+
+      const cleanup = () => {
+        if (!settled) clearInterval(clientCheck);
+        settled = true;
+      };
+
       const req = http.request({
         hostname: 'localhost',
         port: targetPort,
@@ -274,10 +291,11 @@ export class MCPServer {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(postData),
         },
-      }, (res) => {
+      }, (fwdRes) => {
         let data = '';
-        res.on('data', (chunk: string) => data += chunk);
-        res.on('end', () => {
+        fwdRes.on('data', (chunk: string) => data += chunk);
+        fwdRes.on('end', () => {
+          cleanup();
           try {
             resolve(JSON.parse(data));
           } catch (e) {
@@ -286,12 +304,19 @@ export class MCPServer {
         });
       });
 
-      req.setTimeout(300000, () => {
-        req.destroy();
-        reject(new Error('Forward request timeout'));
+      req.on('error', (e) => {
+        cleanup();
+        reject(e);
       });
 
-      req.on('error', reject);
+      const clientCheck = setInterval(() => {
+        if (isClientGone()) {
+          cleanup();
+          req.destroy();
+          reject(new Error('Client disconnected'));
+        }
+      }, 5000);
+
       req.write(postData);
       req.end();
     });

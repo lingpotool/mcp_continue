@@ -23,37 +23,16 @@ export interface StatsSnapshot {
   recentCalls: CallRecord[];
 }
 
-const STATS_KEY = 'mcp_continue_stats';
 const MAX_HISTORY = 200;
 
 export class StatsService {
-  private stats: CallStats;
-  private context: any;
-
-  constructor(context: any) {
-    this.context = context;
-    this.stats = this.load();
-  }
-
-  private load(): CallStats {
-    try {
-      const data = this.context.globalState.get(STATS_KEY);
-      if (data) return data as CallStats;
-    } catch {}
-    return {
-      totalCalls: 0,
-      continueCount: 0,
-      endCount: 0,
-      sessionStart: Date.now(),
-      callHistory: [],
-    };
-  }
-
-  private save(): void {
-    try {
-      this.context.globalState.update(STATS_KEY, this.stats);
-    } catch {}
-  }
+  private stats: CallStats = {
+    totalCalls: 0,
+    continueCount: 0,
+    endCount: 0,
+    sessionStart: Date.now(),
+    callHistory: [],
+  };
 
   record(action: 'continue' | 'end', reason: string, instruction: string, workspaceId: string): void {
     this.stats.totalCalls++;
@@ -71,12 +50,10 @@ export class StatsService {
     if (this.stats.callHistory.length > MAX_HISTORY) {
       this.stats.callHistory = this.stats.callHistory.slice(-MAX_HISTORY);
     }
-
-    this.save();
   }
 
   getSnapshot(): StatsSnapshot {
-    const uptime = Date.now() - (this.stats.sessionStart || Date.now());
+    const uptime = Date.now() - this.stats.sessionStart;
     const hours = Math.floor(uptime / 3600000);
     const minutes = Math.floor((uptime % 3600000) / 60000);
 
@@ -100,7 +77,6 @@ export class StatsService {
       sessionStart: Date.now(),
       callHistory: [],
     };
-    this.save();
   }
 
   getTotalCalls(): number {

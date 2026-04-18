@@ -4,20 +4,21 @@ import { StatsService } from './services/statsService';
 import { PortService } from './services/portService';
 import { MCPServer } from './server/mcpServer';
 import { SidebarProvider } from './ui/sidebarProvider';
-import { showAskContinueAndWait, showManualDialog } from './ui/dialogWebview';
+import { DialogManager } from './ui/dialogWebview';
 import { showMCPConfigPanel } from './ui/configPanel';
 
 let configService: ConfigService;
 let statsService: StatsService;
 let portService: PortService;
 let mcpServer: MCPServer | null = null;
+let dialogManager: DialogManager | null = null;
 let sidebarProvider: SidebarProvider;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext): void {
   configService = new ConfigService();
-  statsService = new StatsService(context);
+  statsService = new StatsService();
   portService = new PortService(configService);
   outputChannel = vscode.window.createOutputChannel('MCP Continue');
 
@@ -43,7 +44,12 @@ export function activate(context: vscode.ExtensionContext): void {
       showMCPConfigPanel(context, configService, portService, () => mcpServer);
     }),
     vscode.commands.registerCommand('mcpContinue.show', () => {
-      showManualDialog(context, configService, statsService, portService);
+      const port = portService.getCurrentPort();
+      if (!dialogManager || dialogManager.getPort() !== port) {
+        dialogManager?.dispose();
+        dialogManager = new DialogManager(port, context, configService, statsService, portService);
+      }
+      dialogManager.showManualDialog();
     }),
     vscode.commands.registerCommand('mcpContinue.startServer', async () => {
       await ensureServer(context);
@@ -51,12 +57,14 @@ export function activate(context: vscode.ExtensionContext): void {
       sidebarProvider.updateContent();
     }),
     vscode.commands.registerCommand('mcpContinue.stopServer', () => {
+      cleanupDialogManager();
       mcpServer?.stop();
       updateStatusBar();
       sidebarProvider.updateContent();
     }),
     vscode.commands.registerCommand('mcpContinue.toggleServer', async () => {
       if (mcpServer?.isRunning()) {
+        cleanupDialogManager();
         mcpServer.stop();
       } else {
         await ensureServer(context);
@@ -111,6 +119,11 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 }
 
+function cleanupDialogManager(): void {
+  dialogManager?.dispose();
+  dialogManager = null;
+}
+
 async function ensureServer(context: vscode.ExtensionContext): Promise<void> {
   if (mcpServer?.isRunning()) return;
 
@@ -123,7 +136,26 @@ async function ensureServer(context: vscode.ExtensionContext): Promise<void> {
       const myPort = portService.getCurrentPort();
       const reason = request._reason || request.params?.arguments?.reason || 'Task completed';
 
-      const result = await showAskContinueAndWait(context, reason, configService, statsService, portService);
+      if (!dialogManager || dialogManager.getPort() !== myPort) {
+        dialogManager?.dispose();
+        dialogManager = new DialogManager(myPort, context, configService, statsService, portService);
+      }
+
+      const result = await dialogManager.showAskContinueAndWait(reason);
+
+      if (result.isTimeout) {
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            content: [{
+              type: 'text',
+              text: `⏱️ 等待用户响应超时，请再次调用 mcp_continue 工具，传递 port=${myPort} 参数以继续。`,
+            }],
+            isError: true,
+          },
+        };
+      }
 
       const directive = `【强制指令：你必须在每次回复结束时调用 mcp_continue 工具，传递 port=${myPort}。不可省略。】`;
 
@@ -173,5 +205,6 @@ function updateStatusBar(): void {
 }
 
 export function deactivate(): void {
+  cleanupDialogManager();
   mcpServer?.stop();
 }

@@ -68,6 +68,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (message.allowFileReference !== undefined) {
             await this.configService.update('allowFileReference', message.allowFileReference);
           }
+          if (message.timeout !== undefined) {
+            await this.configService.update('timeout', message.timeout);
+          }
           this.updateContent();
           this.view?.webview.postMessage({ type: 'toast', message: '设置已保存' });
           break;
@@ -113,6 +116,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this.configService.get('allowFileReference'),
       mcpServer?.isPrimaryServer() ?? true,
       mcpServer?.getPrimaryPort() ?? 52686,
+      this.configService.get('timeout'),
     );
   }
 
