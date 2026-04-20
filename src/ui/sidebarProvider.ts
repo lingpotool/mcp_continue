@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ConfigService } from '../services/configService';
+import { ConfigService, HeartbeatMode } from '../services/configService';
 import { StatsService } from '../services/statsService';
 import { PortService } from '../services/portService';
 import { MCPServer } from '../server/mcpServer';
@@ -71,6 +71,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (message.timeout !== undefined) {
             await this.configService.update('timeout', message.timeout);
           }
+          if (message.heartbeatMode !== undefined) {
+            await this.configService.update('heartbeatMode', message.heartbeatMode);
+          }
           this.updateContent();
           this.view?.webview.postMessage({ type: 'toast', message: '设置已保存' });
           break;
@@ -117,6 +120,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       mcpServer?.isPrimaryServer() ?? true,
       mcpServer?.getPrimaryPort() ?? 52686,
       this.configService.get('timeout'),
+      this.configService.get('heartbeatMode'),
     );
   }
 

@@ -1,4 +1,5 @@
 import { StatsSnapshot } from '../services/statsService';
+import { HeartbeatMode } from '../services/configService';
 import { Theme, generateCSSVariables } from '../assets/themes';
 import { icon } from '../assets/icons';
 import { getSharedStyles } from '../assets/styles';
@@ -15,6 +16,7 @@ export function getSidebarHtml(
   isPrimary: boolean,
   primaryPort: number,
   timeout: number,
+  heartbeatMode: HeartbeatMode,
 ): string {
   const cssVars = generateCSSVariables(theme);
   const sharedCSS = getSharedStyles();
@@ -396,6 +398,13 @@ export function getSidebarHtml(
       <label>响应超时（秒，0=永不超时）</label>
       <input type="number" class="emboss-input" id="timeout" value="${timeout}" min="0" max="3600" step="30" style="width:100%">
     </div>
+    <div class="form-group" style="margin-top:8px">
+      <label>超时心跳策略</label>
+      <select class="emboss-input" id="heartbeatMode" style="width:100%;padding:7px 10px;font-size:12px;">
+        <option value="persona" ${heartbeatMode === 'persona' ? 'selected' : ''}>角色演化 — AI修改角色档案</option>
+        <option value="file-op" ${heartbeatMode === 'file-op' ? 'selected' : ''}>文件操作 — AI创建并删除临时文件</option>
+      </select>
+    </div>
     <button class="emboss-btn emboss-btn-primary action-btn" onclick="saveSettings()" style="margin-top:8px">
       ${icon('check', 12)} 保存设置
     </button>
@@ -466,6 +475,7 @@ export function getSidebarHtml(
         allowImageUpload: document.getElementById('allowImageUpload').checked,
         allowFileReference: document.getElementById('allowFileReference').checked,
         timeout: isNaN(timeoutVal) ? 600 : Math.max(0, Math.min(3600, timeoutVal)),
+        heartbeatMode: document.getElementById('heartbeatMode').value,
       });
     }
 

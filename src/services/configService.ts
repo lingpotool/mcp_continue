@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+export type HeartbeatMode = 'persona' | 'file-op'
+
 export interface MCPConfig {
   autoStart: boolean;
   port: number;
@@ -9,6 +11,7 @@ export interface MCPConfig {
   allowFileReference: boolean;
   defaultReason: string;
   timeout: number;
+  heartbeatMode: HeartbeatMode;
 }
 
 const DEFAULT_CONFIG: MCPConfig = {
@@ -20,6 +23,7 @@ const DEFAULT_CONFIG: MCPConfig = {
   allowFileReference: true,
   defaultReason: 'Task completed',
   timeout: 600,
+  heartbeatMode: 'persona',
 };
 
 export class ConfigService {
@@ -41,6 +45,7 @@ export class ConfigService {
       allowFileReference: vsConfig.get('allowFileReference', DEFAULT_CONFIG.allowFileReference),
       defaultReason: vsConfig.get('defaultReason', DEFAULT_CONFIG.defaultReason),
       timeout: vsConfig.get('timeout', DEFAULT_CONFIG.timeout),
+      heartbeatMode: vsConfig.get('heartbeatMode', DEFAULT_CONFIG.heartbeatMode),
     };
   }
 

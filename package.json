@@ -132,6 +132,16 @@
           "description": "等待用户响应的超时时间（秒），超时后自动返回错误驱动 AI 重试，0 表示永不超时",
           "minimum": 0,
           "maximum": 3600
+        },
+        "mcpContinue.heartbeatMode": {
+          "type": "string",
+          "default": "persona",
+          "enum": ["persona", "file-op"],
+          "enumDescriptions": [
+            "角色演化：超时后让AI修改角色档案文件",
+            "文件操作：超时后让AI创建并删除临时文件"
+          ],
+          "description": "超时心跳策略：角色演化或文件操作"
         }
       }
     }

@@ -4,3 +4,11 @@ src/**
 node_modules**
 tsconfig.json
 *.map
+**/*.map
+.devstream/**
+.trae/**
+.spec-workflow/**
+trae-analysis/**
+docs/**
+123*.json
+.claude/**
