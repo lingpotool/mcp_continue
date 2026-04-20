@@ -15,10 +15,10 @@ interface PendingRequest {
 }
 
 export class DialogManager {
-  private pendingRequest: PendingRequest | null = null;
+  private pendingRequests: Map<string, PendingRequest> = new Map();
+  private timeoutHandles: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private manualPanel: vscode.WebviewPanel | null = null;
   private requestCounter = 0;
-  private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private port: number,
@@ -32,18 +32,16 @@ export class DialogManager {
 
   showAskContinueAndWait(reason: string): Promise<any> {
     return new Promise((resolve) => {
-      this.clearTimeout();
-      this.resolvePending({ shouldContinue: false });
-
       const requestId = `req_${this.port}_${Date.now()}_${++this.requestCounter}`;
       this.createDialogWebview(requestId, reason || 'Task completed', resolve);
 
       const timeoutSeconds = this.configService.get('timeout');
       if (timeoutSeconds > 0) {
-        this.timeoutHandle = setTimeout(() => {
-          this.timeoutHandle = null;
-          this.resolvePending({ isTimeout: true });
+        const handle = setTimeout(() => {
+          this.timeoutHandles.delete(requestId);
+          this.resolveRequest(requestId, { isTimeout: true });
         }, timeoutSeconds * 1000);
+        this.timeoutHandles.set(requestId, handle);
       }
     });
   }
@@ -118,15 +116,18 @@ export class DialogManager {
     const theme = getTheme(this.configService.get('theme'));
     const stats = this.statsService.getSnapshot();
     const myPort = this.portService.getCurrentPort();
+    const queuePosition = this.pendingRequests.size + 1;
+    const titleSuffix = queuePosition > 1 ? ` (${queuePosition})` : '';
 
     const panel = vscode.window.createWebviewPanel(
       `mcpContinue_${this.port}_${requestId}`,
-      `MCP Continue :${myPort}`,
+      `MCP Continue :${myPort}${titleSuffix}`,
       vscode.ViewColumn.Two,
       { enableScripts: true, retainContextWhenHidden: true },
     );
 
-    this.pendingRequest = { resolve, panel, reason, requestId };
+    const pending: PendingRequest = { resolve, panel, reason, requestId };
+    this.pendingRequests.set(requestId, pending);
 
     panel.webview.html = getDialogHtml(
       reason, stats, theme,
@@ -148,11 +149,13 @@ export class DialogManager {
         case 'end':
           this.handleResult(requestId, { shouldContinue: false });
           break;
-        case 'selectImages':
-          if (this.pendingRequest) {
-            this.selectImagesForPanel(this.pendingRequest.panel);
+        case 'selectImages': {
+          const req = this.pendingRequests.get(requestId);
+          if (req) {
+            this.selectImagesForPanel(req.panel);
           }
           break;
+        }
         case 'toggleTheme':
           this.configService.update('theme', message.theme === 'dark' ? 'dark' : 'light');
           break;
@@ -160,17 +163,18 @@ export class DialogManager {
     }, undefined, this.context.subscriptions);
 
     panel.onDidDispose(() => {
-      this.resolvePending({ shouldContinue: false });
+      this.resolveRequest(requestId, { shouldContinue: false });
     });
   }
 
   private handleResult(requestId: string, result: any): void {
-    if (!this.pendingRequest || this.pendingRequest.requestId !== requestId) return;
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) return;
 
-    this.clearTimeout();
+    this.clearRequestTimeout(requestId);
+    this.pendingRequests.delete(requestId);
 
-    const { reason, resolve, panel } = this.pendingRequest;
-    this.pendingRequest = null;
+    const { reason, resolve, panel } = pending;
 
     this.statsService.record(
       result.shouldContinue ? 'continue' : 'end',
@@ -189,19 +193,23 @@ export class DialogManager {
     );
   }
 
-  private resolvePending(result: any): void {
-    if (!this.pendingRequest) return;
-    this.clearTimeout();
-    const { resolve, panel } = this.pendingRequest;
-    this.pendingRequest = null;
+  private resolveRequest(requestId: string, result: any): void {
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) return;
+
+    this.clearRequestTimeout(requestId);
+    this.pendingRequests.delete(requestId);
+
+    const { resolve, panel } = pending;
     panel.dispose();
     resolve(result);
   }
 
-  private clearTimeout(): void {
-    if (this.timeoutHandle) {
-      clearTimeout(this.timeoutHandle);
-      this.timeoutHandle = null;
+  private clearRequestTimeout(requestId: string): void {
+    const handle = this.timeoutHandles.get(requestId);
+    if (handle) {
+      clearTimeout(handle);
+      this.timeoutHandles.delete(requestId);
     }
   }
 
@@ -235,8 +243,15 @@ export class DialogManager {
   }
 
   dispose(): void {
-    this.clearTimeout();
-    this.resolvePending({ shouldContinue: false });
+    const entries = Array.from(this.pendingRequests.entries());
+    this.pendingRequests.clear();
+    this.timeoutHandles.clear();
+
+    for (const [, pending] of entries) {
+      pending.resolve({ shouldContinue: false });
+      pending.panel.dispose();
+    }
+
     if (this.manualPanel) {
       this.manualPanel.dispose();
       this.manualPanel = null;
