@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-import { ConfigService } from './services/configService';
+import { ConfigService, getRulesTemplate } from './services/configService';
 import { StatsService } from './services/statsService';
 import { PortService } from './services/portService';
+import { AutoTaskService } from './services/autoTaskService';
 import { MCPServer } from './server/mcpServer';
 import { SidebarProvider } from './ui/sidebarProvider';
 import { DialogManager } from './ui/dialogWebview';
@@ -10,6 +11,7 @@ import { showMCPConfigPanel } from './ui/configPanel';
 let configService: ConfigService;
 let statsService: StatsService;
 let portService: PortService;
+let autoTaskService: AutoTaskService;
 let mcpServer: MCPServer | null = null;
 let dialogManager: DialogManager | null = null;
 let sidebarProvider: SidebarProvider;
@@ -21,6 +23,7 @@ export function activate(context: vscode.ExtensionContext): void {
   statsService = new StatsService();
   portService = new PortService(configService);
   outputChannel = vscode.window.createOutputChannel('MCP Continue');
+  autoTaskService = new AutoTaskService(configService, portService, outputChannel);
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'mcpContinue.openDashboard';
@@ -33,6 +36,7 @@ export function activate(context: vscode.ExtensionContext): void {
     statsService,
     portService,
     () => mcpServer,
+    autoTaskService,
   );
 
   context.subscriptions.push(
@@ -80,34 +84,40 @@ export function activate(context: vscode.ExtensionContext): void {
       sidebarProvider.refreshView();
       vscode.window.showInformationMessage('统计已重置');
     }),
+    vscode.commands.registerCommand('mcpContinue.testSendToAgent', async () => {
+      const items = [
+        { label: '1. sendToAgentNonBlocking (新建会话+发送)', description: '会切换到聊天面板', command: 'nonblock' },
+        { label: '2. sendToAgentBackground.deepwiki (后台发送)', description: '不会切换页面', command: 'background' },
+        { label: '3. createNewSession (仅创建新会话)', description: '测试创建会话', command: 'newsession' },
+        { label: '4. getSessionRunningStatus (查询会话状态)', description: '查询当前会话状态', command: 'status' },
+      ];
+      const picked = await vscode.window.showQuickPick(items, { placeHolder: '选择要测试的命令' });
+      if (!picked) return;
+
+      const input = await vscode.window.showInputBox({ prompt: '输入消息内容', value: '你好，这是测试消息' });
+      if (!input) return;
+
+      try {
+        let result: any;
+        if (picked.command === 'nonblock') {
+          result = await vscode.commands.executeCommand('icube.chat.sendToAgentNonBlocking', [input], { newSession: true });
+        } else if (picked.command === 'background') {
+          result = await vscode.commands.executeCommand('icube.chat.sendToAgentBackground.deepwiki', [input], {});
+        } else if (picked.command === 'newsession') {
+          result = await vscode.commands.executeCommand('workbench.action.icube.aiChatSidebar.createNewSession');
+        } else if (picked.command === 'status') {
+          result = await vscode.commands.executeCommand('icube.chat.getSessionRunningStatus', {});
+        }
+        vscode.window.showInformationMessage(`结果: ${JSON.stringify(result)}`);
+        outputChannel.appendLine(`[testSendToAgent] ${picked.command}: ${JSON.stringify(result)}`);
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`错误: ${e.message}`);
+        outputChannel.appendLine(`[testSendToAgent] ERROR ${picked.command}: ${e.message}`);
+      }
+    }),
     vscode.commands.registerCommand('mcpContinue.copyRules', () => {
       const port = portService.getCurrentPort();
-      const rules = `# MCP Continue - AI对话持续规则
-
-⚠️ 最高优先级：每次回复结束前必须调用 mcp_continue 工具！
-
-## 核心规则
-
-1. **完整输出** - 输出完整代码和答案，禁止省略
-2. **持续执行** - 复杂任务尽量一次完成
-3. **结束确认** - 想结束对话时，必须先调用 mcp_continue 工具
-4. **遵守选择** - 用户选择"结束"时，必须立即停止
-
-## 强制指令：调用 mcp_continue 工具
-
-你必须在每次回复结束时调用 mcp_continue 工具，传递以下参数：
-
-\`\`\`json
-{
-  "reason": "任务完成原因",
-  "port": ${port}
-}
-\`\`\`
-
-- **reason**: 你想要结束对话的原因
-- **port**: 当前窗口端口号（${port}），这是强制参数，不可省略
-`;
-      vscode.env.clipboard.writeText(rules);
+      vscode.env.clipboard.writeText(getRulesTemplate(port));
       vscode.window.showInformationMessage('规则模板已复制到剪贴板');
     }),
     statusBarItem,
@@ -144,8 +154,6 @@ async function ensureServer(context: vscode.ExtensionContext): Promise<void> {
       const result = await dialogManager.showAskContinueAndWait(reason);
 
       if (result.isTimeout) {
-        statsService.record('continue', reason, '超时自动续期', portService.getWorkspaceId());
-
         let heartbeatInstruction: string;
         if (configService.get('heartbeatMode') === 'file-op') {
           heartbeatInstruction = `在项目根目录创建一个名为 .mcp-scratch.tmp 的文件，写入3个随机数字作为内容，然后立即删除这个 .mcp-scratch.tmp 文件。完成后调用 mcp_continue 工具，参数：{"reason": "文件缓存已清理", "port": ${myPort}}。注意：只操作 .mcp-scratch.tmp 这一个文件，不要操作其他任何文件。`;
@@ -218,6 +226,7 @@ function updateStatusBar(): void {
 }
 
 export function deactivate(): void {
+  autoTaskService?.dispose();
   cleanupDialogManager();
   mcpServer?.stop();
 }

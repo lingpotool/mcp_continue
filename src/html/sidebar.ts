@@ -17,6 +17,13 @@ export function getSidebarHtml(
   primaryPort: number,
   timeout: number,
   heartbeatMode: HeartbeatMode,
+  autoTaskAgentName: string,
+  autoTaskAgentId: string,
+  autoTaskModelName: string,
+  autoTaskIntervalMin: number,
+  autoTaskPrompt: string,
+  autoTaskRunning: boolean,
+  autoTaskCountdown: string,
 ): string {
   const cssVars = generateCSSVariables(theme);
   const sharedCSS = getSharedStyles();
@@ -448,6 +455,38 @@ export function getSidebarHtml(
     </button>
   </div>
 
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-title">${icon('play', 12)} 自动创建任务</div>
+    <div class="form-group">
+      <label>Agent 名称</label>
+      <input type="text" class="emboss-input" id="atAgentName" value="${autoTaskAgentName}" style="width:100%">
+    </div>
+    <div class="form-group">
+      <label>Agent ID</label>
+      <input type="text" class="emboss-input" id="atAgentId" value="${autoTaskAgentId}" style="width:100%">
+    </div>
+    <div class="form-group">
+      <label>模型名称（空=默认）</label>
+      <input type="text" class="emboss-input" id="atModelName" value="${autoTaskModelName}" placeholder="例如 glm-5.1" style="width:100%">
+    </div>
+    <div class="form-group">
+      <label>间隔（分钟）</label>
+      <input type="number" class="emboss-input" id="atInterval" value="${autoTaskIntervalMin}" min="1" max="1440" style="width:100%">
+    </div>
+    <div class="form-group">
+      <label>提示词（空=自动生成规则模板）</label>
+      <textarea class="emboss-input" id="atPrompt" rows="3" placeholder="留空将使用自动生成的 mcp_continue 规则模板..." style="width:100%;resize:vertical;min-height:50px;font-size:11px;">${autoTaskPrompt.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+    </div>
+    <button class="emboss-btn ${autoTaskRunning ? 'emboss-btn-danger' : 'emboss-btn-primary'} action-btn" onclick="toggleAutoTask()">
+      ${autoTaskRunning ? icon('square', 12) + ' 停止' : icon('play', 12) + ' 启动'}
+    </button>
+    <div id="atCountdown" style="text-align:center;font-size:13px;font-weight:600;color:var(--accent);padding:6px 0;">
+      ${autoTaskRunning ? '下次创建: ' + autoTaskCountdown : '未启动'}
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
@@ -532,6 +571,29 @@ export function getSidebarHtml(
       setTimeout(() => t.className = 'toast', 2000);
     }
 
+    let atRunning = ${autoTaskRunning ? 'true' : 'false'};
+
+    function toggleAutoTask() {
+      const intervalVal = parseInt(document.getElementById('atInterval').value, 10);
+      vscode.postMessage({
+        type: 'autoTaskSaveSettings',
+        agentName: document.getElementById('atAgentName').value,
+        agentId: document.getElementById('atAgentId').value,
+        modelName: document.getElementById('atModelName').value,
+        intervalMin: isNaN(intervalVal) ? 30 : Math.max(1, Math.min(1440, intervalVal)),
+        prompt: document.getElementById('atPrompt').value,
+      });
+      if (atRunning) {
+        vscode.postMessage({ type: 'autoTaskStop' });
+        atRunning = false;
+        document.getElementById('atCountdown').textContent = '未启动';
+      } else {
+        vscode.postMessage({ type: 'autoTaskStart' });
+        atRunning = true;
+        document.getElementById('atCountdown').textContent = '启动中...';
+      }
+    }
+
     window.addEventListener('message', function(e) {
       const msg = e.data;
       if (msg.type === 'serverStatus') {
@@ -547,6 +609,10 @@ export function getSidebarHtml(
       }
       if (msg.type === 'statsUpdate') {
         location.reload();
+      }
+      if (msg.type === 'autoTaskCountdown') {
+        atRunning = !!msg.remaining;
+        document.getElementById('atCountdown').textContent = msg.remaining ? '下次创建: ' + msg.remaining : '未启动';
       }
     });
   </script>

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConfigService, HeartbeatMode } from '../services/configService';
 import { StatsService } from '../services/statsService';
 import { PortService } from '../services/portService';
+import { AutoTaskService } from '../services/autoTaskService';
 import { MCPServer } from '../server/mcpServer';
 import { getTheme } from '../assets/themes';
 import { getSidebarHtml } from '../html/sidebar';
@@ -15,6 +16,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     private statsService: StatsService,
     private portService: PortService,
     private getMCPServer: () => MCPServer | null,
+    private autoTaskService: AutoTaskService,
   ) {}
 
   resolveWebviewView(
@@ -98,6 +100,36 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case 'copyText':
           vscode.env.clipboard.writeText(message.text);
           break;
+
+        case 'autoTaskStart':
+          this.autoTaskService.start((remaining) => {
+            this.view?.webview.postMessage({ type: 'autoTaskCountdown', remaining });
+          });
+          break;
+
+        case 'autoTaskStop':
+          this.autoTaskService.stop();
+          this.view?.webview.postMessage({ type: 'autoTaskCountdown', remaining: '' });
+          this.updateContent();
+          break;
+
+        case 'autoTaskSaveSettings': {
+          const updates: [string, unknown][] = [
+            ['autoTaskEnabled', message.enabled],
+            ['autoTaskAgentName', message.agentName],
+            ['autoTaskAgentId', message.agentId],
+            ['autoTaskModelName', message.modelName],
+            ['autoTaskIntervalMin', message.intervalMin],
+            ['autoTaskPrompt', message.prompt],
+          ];
+          for (const [key, val] of updates) {
+            if (val !== undefined && val !== null) {
+              await this.configService.update(key as any, val);
+            }
+          }
+          this.view?.webview.postMessage({ type: 'toast', message: '自动任务设置已保存' });
+          break;
+        }
       }
     });
   }
@@ -107,6 +139,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     const mcpServer = this.getMCPServer();
     const theme = getTheme(this.configService.get('theme'));
+    const taskState = this.autoTaskService.getState();
 
     this.view.webview.html = getSidebarHtml(
       mcpServer?.isRunning() ?? false,
@@ -121,6 +154,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       mcpServer?.getPrimaryPort() ?? 52686,
       this.configService.get('timeout'),
       this.configService.get('heartbeatMode'),
+      this.configService.get('autoTaskAgentName'),
+      this.configService.get('autoTaskAgentId'),
+      this.configService.get('autoTaskModelName'),
+      this.configService.get('autoTaskIntervalMin'),
+      this.configService.get('autoTaskPrompt'),
+      taskState.running,
+      taskState.remaining,
     );
   }
 

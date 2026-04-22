@@ -2,7 +2,7 @@
   "name": "mcp-continue",
   "displayName": "MCP Continue - AI对话持续工具",
   "description": "Professional MCP Continue tool with interactive dialog, call statistics, and modern UI. HTTP mode only.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "mcp-continue",
   "license": "MIT",
   "repository": {
@@ -83,6 +83,10 @@
       {
         "command": "mcpContinue.resetStats",
         "title": "MCP Continue: 重置统计"
+      },
+      {
+        "command": "mcpContinue.testSendToAgent",
+        "title": "MCP Continue: 测试发送到AI Agent"
       }
     ],
     "configuration": {
@@ -142,6 +146,38 @@
             "文件操作：超时后让AI创建并删除临时文件"
           ],
           "description": "超时心跳策略：角色演化或文件操作"
+        },
+        "mcpContinue.autoTaskEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "启用自动创建任务"
+        },
+        "mcpContinue.autoTaskAgentName": {
+          "type": "string",
+          "default": "SOLO Coder",
+          "description": "自动创建任务使用的 Agent 名称（如 Chat, SOLO Coder, Builder）"
+        },
+        "mcpContinue.autoTaskAgentId": {
+          "type": "string",
+          "default": "solo_coder",
+          "description": "自动创建任务使用的 Agent ID（如 chat, solo_coder, builder）"
+        },
+        "mcpContinue.autoTaskModelName": {
+          "type": "string",
+          "default": "",
+          "description": "模型名称（如 glm-5.1），留空使用 IDE 默认模型"
+        },
+        "mcpContinue.autoTaskIntervalMin": {
+          "type": "number",
+          "default": 30,
+          "description": "自动创建任务的间隔时间（分钟）",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "mcpContinue.autoTaskPrompt": {
+          "type": "string",
+          "default": "",
+          "description": "自定义任务提示词，留空使用自动生成的规则模板"
         }
       }
     }

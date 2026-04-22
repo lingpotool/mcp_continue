@@ -30,6 +30,15 @@ export class DialogManager {
 
   getPort(): number { return this.port; }
 
+  private async getWorkspaceFiles(): Promise<string[]> {
+    const exclude = '{**/node_modules/**,**/.git/**,**/out/**,**/dist/**,**/__pycache__/**,**/.next/**,**/.nuxt/**,**/target/**,**/build/**}';
+    const uris = await vscode.workspace.findFiles('**/*', exclude, 500);
+    return uris.map(uri => {
+      const relative = vscode.workspace.asRelativePath(uri);
+      return relative.replace(/\\\\/g, '/');
+    }).sort();
+  }
+
   showAskContinueAndWait(reason: string): Promise<any> {
     return new Promise((resolve) => {
       const requestId = `req_${this.port}_${Date.now()}_${++this.requestCounter}`;
@@ -46,7 +55,7 @@ export class DialogManager {
     });
   }
 
-  showManualDialog(): void {
+  async showManualDialog(): Promise<void> {
     if (this.manualPanel) {
       this.manualPanel.dispose();
       this.manualPanel = null;
@@ -57,6 +66,7 @@ export class DialogManager {
     const stats = this.statsService.getSnapshot();
     const myPort = this.portService.getCurrentPort();
     const reason = this.configService.get('defaultReason');
+    const files = this.configService.get('allowFileReference') ? await this.getWorkspaceFiles() : [];
 
     const panel = vscode.window.createWebviewPanel(
       `mcpContinue_manual_${this.port}_${requestId}`,
@@ -67,11 +77,14 @@ export class DialogManager {
 
     this.manualPanel = panel;
 
+    const timeout = this.configService.get('timeout');
     panel.webview.html = getDialogHtml(
       reason, stats, theme,
       this.configService.get('showStats'),
       this.configService.get('allowImageUpload'),
       this.configService.get('allowFileReference'),
+      files,
+      timeout,
     );
 
     panel.webview.onDidReceiveMessage(async (message) => {
@@ -108,16 +121,18 @@ export class DialogManager {
     });
   }
 
-  private createDialogWebview(
+  private async createDialogWebview(
     requestId: string,
     reason: string,
     resolve: (result: any) => void,
-  ): void {
+  ): Promise<void> {
     const theme = getTheme(this.configService.get('theme'));
     const stats = this.statsService.getSnapshot();
     const myPort = this.portService.getCurrentPort();
     const queuePosition = this.pendingRequests.size + 1;
     const titleSuffix = queuePosition > 1 ? ` (${queuePosition})` : '';
+    const files = this.configService.get('allowFileReference') ? await this.getWorkspaceFiles() : [];
+    const timeout = this.configService.get('timeout');
 
     const panel = vscode.window.createWebviewPanel(
       `mcpContinue_${this.port}_${requestId}`,
@@ -134,6 +149,8 @@ export class DialogManager {
       this.configService.get('showStats'),
       this.configService.get('allowImageUpload'),
       this.configService.get('allowFileReference'),
+      files,
+      timeout,
     );
 
     panel.webview.onDidReceiveMessage((message) => {

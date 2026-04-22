@@ -10,6 +10,8 @@ export function getDialogHtml(
   showStats: boolean,
   allowImageUpload: boolean,
   allowFileReference: boolean,
+  files: string[] = [],
+  timeout: number = 0,
 ): string {
   const cssVars = generateCSSVariables(theme);
   const sharedCSS = getSharedStyles();
@@ -358,6 +360,40 @@ export function getDialogHtml(
       font-family: inherit;
       font-size: 10px;
     }
+
+    .timeout-bar {
+      margin-top: 10px;
+      flex-shrink: 0;
+      display: none;
+    }
+    .timeout-bar.visible { display: block; }
+    .timeout-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .timeout-header .timeout-time {
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .timeout-track {
+      width: 100%;
+      height: 3px;
+      background: var(--bg-tertiary);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .timeout-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 1s linear;
+    }
+    .timeout-fill.warning { background: #f59e0b; }
+    .timeout-fill.danger { background: var(--danger); }
   </style>
 </head>
 <body>
@@ -421,6 +457,16 @@ export function getDialogHtml(
 
     <div class="shortcut-hint">
       <kbd>Enter</kbd> 继续 · <kbd>Shift+Enter</kbd> 换行 · <kbd>Esc</kbd> 结束
+    </div>
+
+    <div class="timeout-bar" id="timeoutBar">
+      <div class="timeout-header">
+        <span>${icon('clock', 10)} 自动关闭</span>
+        <span class="timeout-time" id="timeoutTime"></span>
+      </div>
+      <div class="timeout-track">
+        <div class="timeout-fill" id="timeoutFill"></div>
+      </div>
     </div>
   </div>
 
@@ -655,7 +701,32 @@ export function getDialogHtml(
       }
     });
 
-    const ALL_FILES = [];
+    const ALL_FILES = ${JSON.stringify(files)};
+    const TIMEOUT_SECONDS = ${timeout};
+    if (TIMEOUT_SECONDS > 0) {
+      const bar = document.getElementById('timeoutBar');
+      const fill = document.getElementById('timeoutFill');
+      const timeEl = document.getElementById('timeoutTime');
+      bar.classList.add('visible');
+      let remaining = TIMEOUT_SECONDS;
+      fill.style.width = '100%';
+      timeEl.textContent = formatSec(remaining);
+      const timer = setInterval(() => {
+        remaining--;
+        if (remaining <= 0) { clearInterval(timer); return; }
+        const pct = (remaining / TIMEOUT_SECONDS) * 100;
+        fill.style.width = pct + '%';
+        timeEl.textContent = formatSec(remaining);
+        fill.classList.remove('warning', 'danger');
+        if (pct <= 20) fill.classList.add('danger');
+        else if (pct <= 40) fill.classList.add('warning');
+      }, 1000);
+    }
+    function formatSec(s) {
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return (m > 0 ? m + ':' : '') + String(sec).padStart(m > 0 ? 2 : 1, '0');
+    }
     textarea.focus();
   </script>
 </body>
