@@ -25,6 +25,8 @@ export function getSidebarHtml(
   autoTaskPrompt: string,
   autoTaskRunning: boolean,
   autoTaskCountdown: string,
+  registeredPorts: number[],
+  registeredWithPrimary: boolean,
 ): string {
   const cssVars = generateCSSVariables(theme);
   const sharedCSS = getSharedStyles();
@@ -403,6 +405,105 @@ export function getSidebarHtml(
       padding: 6px 0 2px;
       font-variant-numeric: tabular-nums;
     }
+
+    .node-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .node-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      box-shadow: inset 1px 1px 2px var(--emboss-dark), inset -1px -1px 1px var(--emboss-light);
+    }
+
+    .node-port {
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
+      flex: 1;
+    }
+
+    .node-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .node-status-badge.online {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+    }
+
+    .node-status-badge.offline {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+    }
+
+    .node-status-badge.unknown {
+      background: rgba(156, 163, 175, 0.15);
+      color: var(--text-muted);
+    }
+
+    .node-remove-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      transition: all 0.15s;
+    }
+
+    .node-remove-btn:hover {
+      color: var(--danger);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .node-empty {
+      text-align: center;
+      padding: 12px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .reg-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      box-shadow: inset 1px 1px 2px var(--emboss-dark), inset -1px -1px 1px var(--emboss-light);
+    }
+
+    .reg-status-text {
+      flex: 1;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .reg-status-text.registered {
+      color: var(--success);
+    }
+
+    .reg-status-text.unregistered {
+      color: var(--danger);
+    }
   </style>
 </head>
 <body>
@@ -431,6 +532,47 @@ export function getSidebarHtml(
   </div>
 
   ${serverRunning ? `
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-title">${icon('server', 12)} 节点管理</div>
+    ${isPrimary ? `
+      <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">主节点 :${port} — 已连接 ${registeredPorts.length} 个子节点</div>
+      ${registeredPorts.length > 0 ? `
+      <div class="node-list" id="nodeList">
+        ${registeredPorts.map(p => `
+        <div class="node-item" id="node-${p}">
+          <span class="status-dot running" id="nodeDot-${p}"></span>
+          <span class="node-port">:${p}</span>
+          <span class="node-status-badge online" id="nodeBadge-${p}">${icon('shieldCheck', 10)} 在线</span>
+          <button class="node-remove-btn" onclick="removeNode(${p})" title="移除节点">${icon('x', 12)}</button>
+        </div>
+        `).join('')}
+      </div>
+      ` : `
+      <div class="node-empty">暂无子节点连接</div>
+      `}
+      <div class="btn-row">
+        <button class="emboss-btn emboss-btn-ghost" onclick="refreshHealthCheck()" style="flex:1;padding:7px 10px;font-size:11px">
+          ${icon('refresh', 12)} 刷新状态
+        </button>
+      </div>
+    ` : `
+      <div class="reg-status">
+        ${registeredWithPrimary
+          ? `<span class="status-dot running"></span><span class="reg-status-text registered">${icon('shieldCheck', 10)} 已注册到主节点 :${primaryPort}</span>`
+          : `<span class="status-dot stopped"></span><span class="reg-status-text unregistered">${icon('shieldX', 10)} 未注册到主节点 :${primaryPort}</span>`
+        }
+      </div>
+      <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">本节点端口 :${port} → 主节点 :${primaryPort}</div>
+      <div class="btn-row">
+        <button class="emboss-btn emboss-btn-primary" onclick="refreshRegistration()" style="flex:1;padding:7px 10px;font-size:11px">
+          ${icon('link', 12)} 刷新注册
+        </button>
+      </div>
+    `}
+  </div>
+
   <div class="divider"></div>
 
   <div class="section">
@@ -668,6 +810,20 @@ export function getSidebarHtml(
       const url = document.getElementById('serverUrl').textContent;
       vscode.postMessage({ type: 'copyText', text: url });
       showToast('已复制 URL');
+    }
+
+    function refreshRegistration() {
+      vscode.postMessage({ type: 'refreshRegistration' });
+      showToast('正在刷新注册...');
+    }
+
+    function removeNode(port) {
+      vscode.postMessage({ type: 'removeNode', port: port });
+    }
+
+    function refreshHealthCheck() {
+      vscode.postMessage({ type: 'refreshHealthCheck' });
+      showToast('正在检查节点状态...');
     }
 
     function showToast(msg, isError) {

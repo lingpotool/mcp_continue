@@ -28,6 +28,34 @@ export class MCPServer {
   getPrimaryPort(): number { return PRIMARY_PORT; }
   isPrimaryServer(): boolean { return this.isPrimary; }
   getRegisteredPorts(): Set<number> { return this.registeredPorts; }
+  isRegisteredWithPrimary(): boolean { return this.registeredWithPrimary; }
+
+  removeRegisteredPort(port: number): void {
+    this.registeredPorts.delete(port);
+    this.outputChannel.appendLine(`[管理] 手动移除端口 ${port}, 当前注册端口: [${Array.from(this.registeredPorts).join(', ')}]`);
+  }
+
+  async manualRegister(): Promise<boolean> {
+    if (this.isPrimary || !this.running) return false;
+    const success = await this.registerWithPrimary();
+    if (success) {
+      this.outputChannel.appendLine(`[管理] 手动注册成功: 端口 ${this.myPort}`);
+    }
+    return success;
+  }
+
+  async runHealthCheck(): Promise<void> {
+    if (!this.running || !this.isPrimary || this.registeredPorts.size === 0) return;
+    const portsToRemove: number[] = [];
+    for (const port of this.registeredPorts) {
+      const alive = await this.checkPortAlive(port);
+      if (!alive) {
+        portsToRemove.push(port);
+        this.outputChannel.appendLine(`[健康检查] 端口 ${port} 无响应，移除注册`);
+      }
+    }
+    portsToRemove.forEach(p => this.registeredPorts.delete(p));
+  }
 
   getMCPUrl(): string {
     return `http://localhost:${PRIMARY_PORT}`;

@@ -101,6 +101,33 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           vscode.env.clipboard.writeText(message.text);
           break;
 
+        case 'refreshRegistration':
+          if (mcpServer && mcpServer.isRunning() && !mcpServer.isPrimaryServer()) {
+            const success = await mcpServer.manualRegister();
+            if (success) {
+              this.updateContent();
+              this.view?.webview.postMessage({ type: 'toast', message: '注册成功' });
+            } else {
+              this.view?.webview.postMessage({ type: 'toast', message: '注册失败，请检查主服务器是否运行' });
+            }
+          }
+          break;
+
+        case 'removeNode':
+          if (mcpServer && mcpServer.isPrimaryServer() && message.port) {
+            mcpServer.removeRegisteredPort(message.port);
+            this.updateContent();
+          }
+          break;
+
+        case 'refreshHealthCheck':
+          if (mcpServer && mcpServer.isPrimaryServer()) {
+            await mcpServer.runHealthCheck();
+            this.updateContent();
+            this.view?.webview.postMessage({ type: 'toast', message: '状态已刷新' });
+          }
+          break;
+
         case 'autoTaskSaveSettings': {
           const updates: [string, unknown][] = [
             ['autoTaskEnabled', message.enabled],
@@ -161,6 +188,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this.configService.get('autoTaskPrompt'),
       taskState.running,
       taskState.remaining,
+      Array.from(mcpServer?.getRegisteredPorts() ?? []),
+      mcpServer?.isRegisteredWithPrimary() ?? false,
     );
   }
 
