@@ -127,6 +127,12 @@ export function activate(context: vscode.ExtensionContext): void {
   if (configService.get('autoStart') !== false) {
     ensureServer(context);
   }
+
+  if (configService.get('autoTaskEnabled')) {
+    autoTaskService.start((remaining) => {
+      sidebarProvider.updateAutoTaskCountdown(remaining);
+    });
+  }
 }
 
 function cleanupDialogManager(): void {

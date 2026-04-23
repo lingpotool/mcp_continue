@@ -101,18 +101,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           vscode.env.clipboard.writeText(message.text);
           break;
 
-        case 'autoTaskStart':
-          this.autoTaskService.start((remaining) => {
-            this.view?.webview.postMessage({ type: 'autoTaskCountdown', remaining });
-          });
-          break;
-
-        case 'autoTaskStop':
-          this.autoTaskService.stop();
-          this.view?.webview.postMessage({ type: 'autoTaskCountdown', remaining: '' });
-          this.updateContent();
-          break;
-
         case 'autoTaskSaveSettings': {
           const updates: [string, unknown][] = [
             ['autoTaskEnabled', message.enabled],
@@ -127,7 +115,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
               await this.configService.update(key as any, val);
             }
           }
-          this.view?.webview.postMessage({ type: 'toast', message: '自动任务设置已保存' });
+
+          if (message.enabled) {
+            this.autoTaskService.start((remaining) => {
+              this.view?.webview.postMessage({ type: 'autoTaskCountdown', remaining });
+            });
+          } else {
+            this.autoTaskService.stop();
+            this.view?.webview.postMessage({ type: 'autoTaskCountdown', remaining: '' });
+          }
+
+          this.updateContent();
+          this.view?.webview.postMessage({ type: 'toast', message: '设置已保存' });
           break;
         }
       }
@@ -154,6 +153,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       mcpServer?.getPrimaryPort() ?? 52686,
       this.configService.get('timeout'),
       this.configService.get('heartbeatMode'),
+      this.configService.get('autoTaskEnabled'),
       this.configService.get('autoTaskAgentName'),
       this.configService.get('autoTaskAgentId'),
       this.configService.get('autoTaskModelName'),
@@ -170,5 +170,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   refreshView(): void {
     this.updateContent();
+  }
+
+  updateAutoTaskCountdown(remaining: string): void {
+    this.view?.webview.postMessage({ type: 'autoTaskCountdown', remaining });
   }
 }

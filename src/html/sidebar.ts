@@ -17,6 +17,7 @@ export function getSidebarHtml(
   primaryPort: number,
   timeout: number,
   heartbeatMode: HeartbeatMode,
+  autoTaskEnabled: boolean,
   autoTaskAgentName: string,
   autoTaskAgentId: string,
   autoTaskModelName: string,
@@ -308,6 +309,100 @@ export function getSidebarHtml(
       font-family: inherit;
     }
     .reset-btn:hover { color: var(--danger); }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      cursor: pointer;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: all 0.2s;
+      box-shadow: inset 1px 1px 2px var(--emboss-dark);
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 2px;
+      bottom: 2px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      transition: all 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(18px);
+      background: white;
+    }
+    .save-btn {
+      width: auto;
+      padding: 5px 14px;
+      font-size: 11px;
+      border-radius: 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s;
+      box-shadow: inset -1px -1px 1px var(--emboss-light), inset 1px 1px 2px var(--emboss-dark);
+    }
+    .save-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .save-btn:active {
+      box-shadow: inset 1px 1px 2px var(--emboss-dark), inset -1px -1px 1px var(--emboss-light);
+    }
+    .at-form {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+    .at-form.expanded {
+      max-height: 600px;
+    }
+    .at-countdown {
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      padding: 6px 0 2px;
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
@@ -459,31 +554,42 @@ export function getSidebarHtml(
 
   <div class="section">
     <div class="section-title">${icon('play', 12)} 自动创建任务</div>
-    <div class="form-group">
-      <label>Agent 名称</label>
-      <input type="text" class="emboss-input" id="atAgentName" value="${autoTaskAgentName}" style="width:100%">
+    <div class="toggle-row">
+      <span class="toggle-label">${autoTaskRunning ? icon('activity', 12) : ''} 启用自动任务</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="atEnabled" ${autoTaskEnabled ? 'checked' : ''} onchange="onAutoTaskToggle()">
+        <span class="toggle-slider"></span>
+      </label>
     </div>
-    <div class="form-group">
-      <label>Agent ID</label>
-      <input type="text" class="emboss-input" id="atAgentId" value="${autoTaskAgentId}" style="width:100%">
+    <div class="at-form ${autoTaskEnabled ? 'expanded' : ''}" id="atForm">
+      <div class="form-group">
+        <label>Agent 名称</label>
+        <input type="text" class="emboss-input" id="atAgentName" value="${autoTaskAgentName}" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label>Agent ID</label>
+        <input type="text" class="emboss-input" id="atAgentId" value="${autoTaskAgentId}" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label>模型名称（空=默认）</label>
+        <input type="text" class="emboss-input" id="atModelName" value="${autoTaskModelName}" placeholder="例如 glm-5.1" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label>间隔（分钟）</label>
+        <input type="number" class="emboss-input" id="atInterval" value="${autoTaskIntervalMin}" min="1" max="1440" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label>提示词（空=自动生成规则模板）</label>
+        <textarea class="emboss-input" id="atPrompt" rows="3" placeholder="留空将使用自动生成的 mcp_continue 规则模板..." style="width:100%;resize:vertical;min-height:50px;font-size:11px;">${autoTaskPrompt.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="save-btn" onclick="saveAutoTaskSettings()">
+          ${icon('save', 11)} 保存设置
+        </button>
+      </div>
     </div>
-    <div class="form-group">
-      <label>模型名称（空=默认）</label>
-      <input type="text" class="emboss-input" id="atModelName" value="${autoTaskModelName}" placeholder="例如 glm-5.1" style="width:100%">
-    </div>
-    <div class="form-group">
-      <label>间隔（分钟）</label>
-      <input type="number" class="emboss-input" id="atInterval" value="${autoTaskIntervalMin}" min="1" max="1440" style="width:100%">
-    </div>
-    <div class="form-group">
-      <label>提示词（空=自动生成规则模板）</label>
-      <textarea class="emboss-input" id="atPrompt" rows="3" placeholder="留空将使用自动生成的 mcp_continue 规则模板..." style="width:100%;resize:vertical;min-height:50px;font-size:11px;">${autoTaskPrompt.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
-    </div>
-    <button class="emboss-btn ${autoTaskRunning ? 'emboss-btn-danger' : 'emboss-btn-primary'} action-btn" onclick="toggleAutoTask()">
-      ${autoTaskRunning ? icon('square', 12) + ' 停止' : icon('play', 12) + ' 启动'}
-    </button>
-    <div id="atCountdown" style="text-align:center;font-size:13px;font-weight:600;color:var(--accent);padding:6px 0;">
-      ${autoTaskRunning ? '下次创建: ' + autoTaskCountdown : '未启动'}
+    <div class="at-countdown" id="atCountdown">
+      ${autoTaskRunning ? '下次创建: ' + autoTaskCountdown : ''}
     </div>
   </div>
 
@@ -573,25 +679,29 @@ export function getSidebarHtml(
 
     let atRunning = ${autoTaskRunning ? 'true' : 'false'};
 
-    function toggleAutoTask() {
+    function onAutoTaskToggle() {
+      const form = document.getElementById('atForm');
+      const checked = document.getElementById('atEnabled').checked;
+      if (checked) {
+        form.classList.add('expanded');
+      } else {
+        form.classList.remove('expanded');
+      }
+      saveAutoTaskSettings();
+    }
+
+    function saveAutoTaskSettings() {
       const intervalVal = parseInt(document.getElementById('atInterval').value, 10);
+      const enabled = document.getElementById('atEnabled').checked;
       vscode.postMessage({
         type: 'autoTaskSaveSettings',
+        enabled: enabled,
         agentName: document.getElementById('atAgentName').value,
         agentId: document.getElementById('atAgentId').value,
         modelName: document.getElementById('atModelName').value,
         intervalMin: isNaN(intervalVal) ? 30 : Math.max(1, Math.min(1440, intervalVal)),
         prompt: document.getElementById('atPrompt').value,
       });
-      if (atRunning) {
-        vscode.postMessage({ type: 'autoTaskStop' });
-        atRunning = false;
-        document.getElementById('atCountdown').textContent = '未启动';
-      } else {
-        vscode.postMessage({ type: 'autoTaskStart' });
-        atRunning = true;
-        document.getElementById('atCountdown').textContent = '启动中...';
-      }
     }
 
     window.addEventListener('message', function(e) {

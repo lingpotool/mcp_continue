@@ -74,17 +74,24 @@ export class AutoTaskService {
     }
   }
 
-  start(onTick: (remaining: string) => void): void {
-    if (this.running) return;
+  private randomizeInterval(): number {
+    const base = Math.max(1, this.configService.get('autoTaskIntervalMin')) * 60;
+    const jitter = Math.floor(base * 0.1);
+    return base - jitter + Math.floor(Math.random() * jitter * 2);
+  }
 
-    const intervalMin = this.configService.get('autoTaskIntervalMin');
-    this.intervalSeconds = Math.max(1, intervalMin) * 60;
+  start(onTick: (remaining: string) => void): void {
+    if (this.running) {
+      this.stop();
+    }
+
+    this.intervalSeconds = this.randomizeInterval();
     this.remainingSeconds = this.intervalSeconds;
     this.running = true;
     this.onTick = onTick;
 
     this.outputChannel.appendLine(
-      `[AutoTask] 启动: 间隔 ${intervalMin} 分钟`
+      `[AutoTask] 启动: 间隔 ${Math.round(this.intervalSeconds / 60)} 分钟`
     );
 
     this.timer = setInterval(() => {
@@ -92,6 +99,7 @@ export class AutoTaskService {
 
       if (this.remainingSeconds <= 0) {
         this.createTask();
+        this.intervalSeconds = this.randomizeInterval();
         this.remainingSeconds = this.intervalSeconds;
       }
 

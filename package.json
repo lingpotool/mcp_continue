@@ -2,7 +2,7 @@
   "name": "mcp-continue",
   "displayName": "MCP Continue - AI对话持续工具",
   "description": "Professional MCP Continue tool with interactive dialog, call statistics, and modern UI. HTTP mode only.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "mcp-continue",
   "license": "MIT",
   "repository": {
