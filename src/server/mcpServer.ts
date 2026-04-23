@@ -12,6 +12,8 @@ export class MCPServer {
   private myPort: number = 0;
   private registeredPorts: Set<number> = new Set();
   private registeredWithPrimary: boolean = false;
+  private registrationTimer: ReturnType<typeof setInterval> | null = null;
+  private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private configService: ConfigService,
@@ -42,7 +44,10 @@ export class MCPServer {
     if (!primaryOccupied) {
       this.isPrimary = true;
       const result = await this.startOnPort(PRIMARY_PORT);
-      if (result) return true;
+      if (result) {
+        this.startHealthCheck();
+        return true;
+      }
       this.isPrimary = false;
     }
 
@@ -60,6 +65,7 @@ export class MCPServer {
     const started = await this.startOnPort(port);
     if (started) {
       this.retryRegistration();
+      this.startPeriodicRegistration();
     }
     return started;
   }
@@ -76,6 +82,55 @@ export class MCPServer {
       this.outputChannel.appendLine('注册到主服务器失败，将作为独立服务器运行');
     };
     tryRegister();
+  }
+
+  private startPeriodicRegistration(): void {
+    if (this.registrationTimer) {
+      clearInterval(this.registrationTimer);
+    }
+    this.registrationTimer = setInterval(async () => {
+      if (!this.running || this.isPrimary) return;
+      const success = await this.registerWithPrimary();
+      if (success && !this.registeredWithPrimary) {
+        this.registeredWithPrimary = true;
+        this.outputChannel.appendLine(`[周期注册] 重新注册成功: 端口 ${this.myPort}`);
+      }
+    }, 30000);
+  }
+
+  private startHealthCheck(): void {
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+    }
+    this.healthCheckTimer = setInterval(async () => {
+      if (!this.running || !this.isPrimary || this.registeredPorts.size === 0) return;
+      const portsToRemove: number[] = [];
+      for (const port of this.registeredPorts) {
+        const alive = await this.checkPortAlive(port);
+        if (!alive) {
+          portsToRemove.push(port);
+          this.outputChannel.appendLine(`[健康检查] 端口 ${port} 无响应，移除注册`);
+        }
+      }
+      portsToRemove.forEach(p => this.registeredPorts.delete(p));
+    }, 60000);
+  }
+
+  private checkPortAlive(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port,
+        path: '/',
+        method: 'GET',
+        timeout: 3000,
+      }, (res) => {
+        resolve(res.statusCode === 200);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.end();
+    });
   }
 
   private async startOnPort(port: number): Promise<boolean> {
@@ -169,13 +224,31 @@ export class MCPServer {
           const targetPort = args.port;
 
           if (targetPort && targetPort !== this.myPort) {
-            if (this.isPrimary && this.registeredPorts.has(targetPort)) {
-              this.outputChannel.appendLine(`[路由] 转发请求到端口 ${targetPort}`);
-              const forwarded = await this.forwardToPort(targetPort, request, res, () => clientGone);
-              if (forwarded) return;
-              this.outputChannel.appendLine(`[路由] 转发失败，本地处理`);
-            } else if (this.isPrimary) {
-              this.outputChannel.appendLine(`[路由] 端口 ${targetPort} 未注册，本地处理`);
+            if (this.isPrimary) {
+              if (this.registeredPorts.has(targetPort)) {
+                this.outputChannel.appendLine(`[路由] 转发请求到端口 ${targetPort}`);
+                const forwarded = await this.forwardToPort(targetPort, request, res, () => clientGone);
+                if (forwarded) return;
+                this.outputChannel.appendLine(`[路由] 转发失败，尝试直接连接`);
+              }
+
+              const directOk = await this.tryDirectForward(targetPort, request, res);
+              if (directOk) {
+                if (!this.registeredPorts.has(targetPort)) {
+                  this.registeredPorts.add(targetPort);
+                  this.outputChannel.appendLine(`[路由] 端口 ${targetPort} 直连成功，自动注册`);
+                }
+                return;
+              }
+
+              this.outputChannel.appendLine(`[路由] 端口 ${targetPort} 不可达`);
+              this.sendJson(res, request.id, {
+                content: [{
+                  type: 'text',
+                  text: `❌ 无法连接到端口 ${targetPort} 对应的窗口。该窗口可能已关闭或服务未启动。请检查目标窗口的 MCP Continue 状态，或使用当前窗口的端口 ${this.myPort}。`,
+                }],
+              });
+              return;
             }
           }
 
@@ -230,6 +303,16 @@ export class MCPServer {
     } catch (error) {
       this.outputChannel.appendLine(`[路由] 转发到端口 ${targetPort} 失败: ${error}`);
       this.registeredPorts.delete(targetPort);
+      return false;
+    }
+  }
+
+  private async tryDirectForward(targetPort: number, request: any, res: http.ServerResponse): Promise<boolean> {
+    try {
+      const response = await this.forwardHttpRequest(targetPort, request, () => false);
+      this.sendJson(res, request.id, response.result || response);
+      return true;
+    } catch {
       return false;
     }
   }
@@ -359,6 +442,14 @@ export class MCPServer {
   }
 
   stop(): void {
+    if (this.registrationTimer) {
+      clearInterval(this.registrationTimer);
+      this.registrationTimer = null;
+    }
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
     if (this.server) {
       if (!this.isPrimary && this.registeredWithPrimary) {
         this.unregisterFromPrimary();
